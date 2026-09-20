@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, Fragment } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useStore } from '../store';
 import { polygonArea, getWallSegments, formatMm } from '../utils/geometry';
@@ -14,7 +14,7 @@ export default function PrintView() {
     return <div className="card">方案不存在</div>;
   }
 
-  const results = calcMaterials(plan.rooms, plan.openings, plan.materials);
+  const results = calcMaterials(plan.rooms, plan.openings, plan.materials, plan.roomPrices);
   const totalPrice = results.reduce((s, r) => s + r.totalPrice, 0);
 
   const handlePrint = () => {
@@ -179,15 +179,36 @@ export default function PrintView() {
             <tbody>
               {results.map((r, i) => {
                 const mat = plan.materials.find((m) => m.id === r.matId);
+                const overrideCount = r.roomLines.filter((l) => l.overridden).length;
                 return (
-                  <tr key={r.matId}>
-                    <td>{i + 1}</td>
-                    <td>{r.name}</td>
-                    <td>{r.unit}</td>
-                    <td>{r.quantity.toFixed(2)}</td>
-                    <td>¥{mat?.price.toFixed(2) || 0}</td>
-                    <td>¥{r.totalPrice.toFixed(2)}</td>
-                  </tr>
+                  <Fragment key={r.matId}>
+                    <tr>
+                      <td>{i + 1}</td>
+                      <td>{r.name}</td>
+                      <td>{r.unit}</td>
+                      <td>{r.quantity.toFixed(2)}</td>
+                      <td>
+                        ¥{mat?.price.toFixed(2) || 0}
+                        {overrideCount > 0 && (
+                          <div style={{ fontSize: 11, color: '#e67e22' }}>含{overrideCount}个房间自定义价</div>
+                        )}
+                      </td>
+                      <td>¥{r.totalPrice.toFixed(2)}</td>
+                    </tr>
+                    {r.roomLines.map((l) => (
+                      <tr key={l.roomId} style={{ fontSize: 12, color: '#666' }}>
+                        <td></td>
+                        <td style={{ paddingLeft: 20 }}>
+                          └ {l.roomName}
+                          {l.overridden && <span style={{ color: '#e67e22' }}>（自定单价）</span>}
+                        </td>
+                        <td>{r.unit}</td>
+                        <td>{l.quantity.toFixed(2)}</td>
+                        <td>¥{l.price.toFixed(2)}</td>
+                        <td>¥{l.totalPrice.toFixed(2)}</td>
+                      </tr>
+                    ))}
+                  </Fragment>
                 );
               })}
             </tbody>

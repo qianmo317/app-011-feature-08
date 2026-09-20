@@ -54,6 +54,8 @@ export interface Plan {
   openings: Opening[];
   outlets: Outlet[];
   materials: MatSpec[];
+  /** 按房间自定义单价：matId -> roomId -> price，未设置的房间用整项统一价 */
+  roomPrices?: Record<string, Record<string, number>>;
 }
 
 export interface WallSegment {
@@ -65,6 +67,25 @@ export interface WallSegment {
   angle: number;
 }
 
+export interface MaterialRoomLine {
+  roomId: string;
+  roomName: string;
+  /** 扣洞口前的基量（地面面积 / 墙面展开 / 踢脚线延长） */
+  gross: number;
+  /** 洞口扣减 */
+  deduct: number;
+  /** gross/deduct 的计量单位（与现有计算口径一致） */
+  measureUnit: string;
+  lossRate: number;
+  /** 用量 = (gross - deduct) × (1 + lossRate) */
+  quantity: number;
+  /** 生效单价：房间自定义价优先，否则整项统一价 */
+  price: number;
+  overridden: boolean;
+  totalPrice: number;
+  detail: string;
+}
+
 export interface MaterialResult {
   matId: string;
   name: string;
@@ -72,4 +93,5 @@ export interface MaterialResult {
   quantity: number;
   totalPrice: number;
   details: string;
+  roomLines: MaterialRoomLine[];
 }

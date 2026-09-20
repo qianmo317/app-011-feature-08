@@ -1,4 +1,4 @@
-import type { Room, Opening, MatSpec, MaterialResult } from '../types';
+import type { Room, Opening, MatSpec, MaterialResult, MaterialRoomLine, Unit } from '../types';
 import { polygonArea, polygonPerimeter } from './geometry';
 
 export const DEFAULT_MATS: MatSpec[] = [
@@ -11,12 +11,30 @@ export const DEFAULT_MATS: MatSpec[] = [
   { id: 'skirting', name: '踢脚线', unit: 'm', coverage: 1, lossRate: 0.03, price: 25 },
 ];
 
+/** matId -> roomId -> 自定义单价 */
+export type RoomPriceMap = Record<string, Record<string, number>>;
+
+interface RoomLineDraft {
+  matId: string;
+  name: string;
+  unit: Unit;
+  roomId: string;
+  roomName: string;
+  gross: number;
+  deduct: number;
+  measureUnit: string;
+  lossRate: number;
+  quantity: number;
+  detail: string;
+}
+
 export function calcMaterials(
   rooms: Room[],
   openings: Opening[],
-  materials: MatSpec[]
+  materials: MatSpec[],
+  roomPrices: RoomPriceMap = {}
 ): MaterialResult[] {
-  const results: MaterialResult[] = [];
+  const drafts: RoomLineDraft[] = [];
   const matMap = new Map(materials.map((m) => [m.id, m]));
 
   for (const room of rooms) {
@@ -44,13 +62,18 @@ export function calcMaterials(
         const pcs = Math.ceil(qty / 0.18);
         detail += `，约${pcs}块`;
       }
-      results.push({
+      drafts.push({
         matId: floorMat.id,
         name: floorMat.name,
         unit: floorMat.unit,
+        roomId: room.id,
+        roomName: room.name,
+        gross: area,
+        deduct: 0,
+        measureUnit: 'm²',
+        lossRate: floorMat.lossRate,
         quantity: qty,
-        totalPrice: qty * floorMat.price,
-        details: detail,
+        detail,
       });
     }
 
@@ -59,13 +82,18 @@ export function calcMaterials(
     if (wallMat) {
       const qty = netWallArea * (1 + wallMat.lossRate);
       const detail = `房间"${room.name}"墙面: (${perim.toFixed(0)}mm×${room.heightMm}mm - ${openingArea.toFixed(0)}mm²) × (1+${(wallMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}${wallMat.unit}`;
-      results.push({
+      drafts.push({
         matId: wallMat.id,
         name: wallMat.name,
         unit: wallMat.unit,
+        roomId: room.id,
+        roomName: room.name,
+        gross: wallArea,
+        deduct: openingArea,
+        measureUnit: 'mm²',
+        lossRate: wallMat.lossRate,
         quantity: qty,
-        totalPrice: qty * wallMat.price,
-        details: detail,
+        detail,
       });
     }
 
@@ -74,28 +102,58 @@ export function calcMaterials(
       const skMat = matMap.get('skirting');
       if (skMat) {
         const qty = netSkirtingLen * (1 + skMat.lossRate);
-        results.push({
+        drafts.push({
           matId: skMat.id,
           name: skMat.name,
           unit: skMat.unit,
+          roomId: room.id,
+          roomName: room.name,
+          gross: perim,
+          deduct: doorWidth,
+          measureUnit: 'mm',
+          lossRate: skMat.lossRate,
           quantity: qty,
-          totalPrice: qty * skMat.price,
-          details: `房间"${room.name}"踢脚线: (${perim.toFixed(0)} - ${doorWidth.toFixed(0)})mm × (1+${(skMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}m`,
+          detail: `房间"${room.name}"踢脚线: (${perim.toFixed(0)} - ${doorWidth.toFixed(0)})mm × (1+${(skMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}m`,
         });
       }
     }
   }
 
-  // Merge same materials
+  // Merge same materials, keeping one line per room
   const merged = new Map<string, MaterialResult>();
-  for (const r of results) {
-    const existing = merged.get(r.matId);
+  for (const d of drafts) {
+    const override = roomPrices[d.matId]?.[d.roomId];
+    const basePrice = matMap.get(d.matId)?.price ?? 0;
+    const price = override ?? basePrice;
+    const line: MaterialRoomLine = {
+      roomId: d.roomId,
+      roomName: d.roomName,
+      gross: d.gross,
+      deduct: d.deduct,
+      measureUnit: d.measureUnit,
+      lossRate: d.lossRate,
+      quantity: d.quantity,
+      price,
+      overridden: override != null,
+      totalPrice: d.quantity * price,
+      detail: d.detail,
+    };
+    const existing = merged.get(d.matId);
     if (existing) {
-      existing.quantity += r.quantity;
-      existing.totalPrice += r.totalPrice;
-      existing.details += '; ' + r.details;
+      existing.quantity += d.quantity;
+      existing.totalPrice += line.totalPrice;
+      existing.details += '; ' + d.detail;
+      existing.roomLines.push(line);
     } else {
-      merged.set(r.matId, { ...r });
+      merged.set(d.matId, {
+        matId: d.matId,
+        name: d.name,
+        unit: d.unit,
+        quantity: d.quantity,
+        totalPrice: line.totalPrice,
+        details: d.detail,
+        roomLines: [line],
+      });
     }
   }
 

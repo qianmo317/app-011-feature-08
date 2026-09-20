@@ -203,6 +203,79 @@ tr:hover {
   background: #f8f9fa;
 }
 
+/* BOM 按房间展开 */
+.row-toggle {
+  cursor: pointer;
+  user-select: none;
+  color: #3498db;
+  display: inline-block;
+  width: 18px;
+  font-size: 12px;
+}
+
+.bom-room-row td {
+  background: #fafbfc;
+  font-size: 13px;
+}
+
+.bom-room-row:hover td {
+  background: #f0f6fb;
+}
+
+.bom-detail {
+  font-size: 12px;
+  color: #999;
+  margin-top: 2px;
+}
+
+.bom-hint {
+  font-size: 11px;
+  color: #999;
+}
+
+.share-bar {
+  height: 4px;
+  background: #ecf0f1;
+  border-radius: 2px;
+  margin-top: 4px;
+  width: 80px;
+}
+
+.share-bar > div {
+  height: 100%;
+  background: #3498db;
+  border-radius: 2px;
+}
+
+.price-override {
+  color: #e67e22;
+  font-weight: 600;
+}
+
+.override-tag {
+  display: inline-block;
+  background: #fdebd0;
+  color: #e67e22;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  white-space: nowrap;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #3498db;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 6px;
+}
+
+.btn-link:hover {
+  text-decoration: underline;
+}
+
 @media print {
   .app-header,
   .toolbar,

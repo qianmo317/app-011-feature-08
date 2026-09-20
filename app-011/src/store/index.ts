@@ -19,6 +19,10 @@ interface AppState {
   addOutlet: (planId: string, outlet: Outlet) => void;
   deleteOutlet: (planId: string, outletId: string) => void;
   updateMaterials: (planId: string, mats: MatSpec[]) => void;
+  /** 设置某个房间某材料的自定义单价，price 为 null 时恢复整项统一价 */
+  setRoomPrice: (planId: string, matId: string, roomId: string, price: number | null) => void;
+  /** 清除某材料的所有房间自定义价，回到整项统一价 */
+  clearRoomPrices: (planId: string, matId: string) => void;
 }
 
 function genId() {
@@ -42,6 +46,7 @@ export const useStore = create<AppState>((set, get) => ({
       openings: [],
       outlets: [],
       materials: [...DEFAULT_MATS],
+      roomPrices: {},
     };
     set((state) => ({ plans: [...state.plans, plan], currentPlanId: id }));
     return id;
@@ -124,5 +129,35 @@ export const useStore = create<AppState>((set, get) => ({
   updateMaterials: (planId, mats) =>
     set((state) => ({
       plans: state.plans.map((p) => (p.id === planId ? { ...p, materials: mats } : p)),
+    })),
+
+  setRoomPrice: (planId, matId, roomId, price) =>
+    set((state) => ({
+      plans: state.plans.map((p) => {
+        if (p.id !== planId) return p;
+        const roomPrices = { ...(p.roomPrices || {}) };
+        const matPrices = { ...(roomPrices[matId] || {}) };
+        if (price == null) {
+          delete matPrices[roomId];
+        } else {
+          matPrices[roomId] = price;
+        }
+        if (Object.keys(matPrices).length === 0) {
+          delete roomPrices[matId];
+        } else {
+          roomPrices[matId] = matPrices;
+        }
+        return { ...p, roomPrices };
+      }),
+    })),
+
+  clearRoomPrices: (planId, matId) =>
+    set((state) => ({
+      plans: state.plans.map((p) => {
+        if (p.id !== planId) return p;
+        const roomPrices = { ...(p.roomPrices || {}) };
+        delete roomPrices[matId];
+        return { ...p, roomPrices };
+      }),
     })),
 }));
