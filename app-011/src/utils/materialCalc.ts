@@ -1,4 +1,4 @@
-import type { Room, Opening, MatSpec, MaterialResult } from '../types';
+import type { Room, Opening, MatSpec, MaterialResult, RoomMatLine } from '../types';
 import { polygonArea, polygonPerimeter } from './geometry';
 
 export const DEFAULT_MATS: MatSpec[] = [
@@ -16,8 +16,28 @@ export function calcMaterials(
   openings: Opening[],
   materials: MatSpec[]
 ): MaterialResult[] {
-  const results: MaterialResult[] = [];
+  const merged = new Map<string, MaterialResult>();
   const matMap = new Map(materials.map((m) => [m.id, m]));
+
+  const addEntry = (mat: MatSpec, line: RoomMatLine, detail: string) => {
+    const existing = merged.get(mat.id);
+    if (existing) {
+      existing.quantity += line.quantity;
+      existing.totalPrice += line.quantity * mat.price;
+      existing.details += '; ' + detail;
+      existing.roomLines.push(line);
+    } else {
+      merged.set(mat.id, {
+        matId: mat.id,
+        name: mat.name,
+        unit: mat.unit,
+        quantity: line.quantity,
+        totalPrice: line.quantity * mat.price,
+        details: detail,
+        roomLines: [line],
+      });
+    }
+  };
 
   for (const room of rooms) {
     const area = polygonArea(room.polygon);
@@ -29,14 +49,21 @@ export function calcMaterials(
     const doorOpenings = roomOpenings.filter((o) => o.type === 'door' || o.type === 'sliding');
     const doorWidth = doorOpenings.reduce((sum, o) => sum + o.widthMm, 0);
 
-    const netWallArea = Math.max(0, wallArea - openingArea);
-    const netSkirtingLen = Math.max(0, perim - doorWidth);
+    // 多边形坐标单位是 mm，换算成 m² / m 后再算用量
+    const areaM2 = area / 1e6;
+    const wallAreaM2 = wallArea / 1e6;
+    const openingAreaM2 = openingArea / 1e6;
+    const perimM = perim / 1000;
+    const doorWidthM = doorWidth / 1000;
+
+    const netWallAreaM2 = Math.max(0, wallAreaM2 - openingAreaM2);
+    const netSkirtingLenM = Math.max(0, perimM - doorWidthM);
 
     // Floor
     const floorMat = matMap.get(room.floorMat);
     if (floorMat) {
-      const qty = area * (1 + floorMat.lossRate);
-      let detail = `房间"${room.name}"地面: ${area.toFixed(2)}m² × (1+${(floorMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}${floorMat.unit}`;
+      const qty = areaM2 * (1 + floorMat.lossRate);
+      let detail = `房间"${room.name}"地面: ${areaM2.toFixed(2)}m² × (1+${(floorMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}${floorMat.unit}`;
       if (room.floorMat === 'tile_800') {
         const pcs = Math.ceil(qty / 0.64);
         detail += `，约${pcs}块`;
@@ -44,58 +71,63 @@ export function calcMaterials(
         const pcs = Math.ceil(qty / 0.18);
         detail += `，约${pcs}块`;
       }
-      results.push({
-        matId: floorMat.id,
-        name: floorMat.name,
-        unit: floorMat.unit,
-        quantity: qty,
-        totalPrice: qty * floorMat.price,
-        details: detail,
-      });
+      addEntry(
+        floorMat,
+        {
+          roomId: room.id,
+          roomName: room.name,
+          part: '地面',
+          base: areaM2,
+          deduction: 0,
+          baseUnit: 'm²',
+          lossRate: floorMat.lossRate,
+          quantity: qty,
+        },
+        detail
+      );
     }
 
     // Wall paint or wallpaper
     const wallMat = matMap.get(room.wallMat);
     if (wallMat) {
-      const qty = netWallArea * (1 + wallMat.lossRate);
-      const detail = `房间"${room.name}"墙面: (${perim.toFixed(0)}mm×${room.heightMm}mm - ${openingArea.toFixed(0)}mm²) × (1+${(wallMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}${wallMat.unit}`;
-      results.push({
-        matId: wallMat.id,
-        name: wallMat.name,
-        unit: wallMat.unit,
-        quantity: qty,
-        totalPrice: qty * wallMat.price,
-        details: detail,
-      });
+      const qty = netWallAreaM2 * (1 + wallMat.lossRate);
+      const detail = `房间"${room.name}"墙面: (${perimM.toFixed(2)}m×${(room.heightMm / 1000).toFixed(2)}m - ${openingAreaM2.toFixed(2)}m²) × (1+${(wallMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}${wallMat.unit}`;
+      addEntry(
+        wallMat,
+        {
+          roomId: room.id,
+          roomName: room.name,
+          part: '墙面',
+          base: wallAreaM2,
+          deduction: Math.min(openingAreaM2, wallAreaM2),
+          baseUnit: 'm²',
+          lossRate: wallMat.lossRate,
+          quantity: qty,
+        },
+        detail
+      );
     }
 
     // Skirting (if not tile wall)
     if (room.wallMat !== 'tile_300') {
       const skMat = matMap.get('skirting');
       if (skMat) {
-        const qty = netSkirtingLen * (1 + skMat.lossRate);
-        results.push({
-          matId: skMat.id,
-          name: skMat.name,
-          unit: skMat.unit,
-          quantity: qty,
-          totalPrice: qty * skMat.price,
-          details: `房间"${room.name}"踢脚线: (${perim.toFixed(0)} - ${doorWidth.toFixed(0)})mm × (1+${(skMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}m`,
-        });
+        const qty = netSkirtingLenM * (1 + skMat.lossRate);
+        addEntry(
+          skMat,
+          {
+            roomId: room.id,
+            roomName: room.name,
+            part: '踢脚线',
+            base: perimM,
+            deduction: Math.min(doorWidthM, perimM),
+            baseUnit: 'm',
+            lossRate: skMat.lossRate,
+            quantity: qty,
+          },
+          `房间"${room.name}"踢脚线: (${perimM.toFixed(2)} - ${doorWidthM.toFixed(2)})m × (1+${(skMat.lossRate * 100).toFixed(0)}%) = ${qty.toFixed(2)}m`
+        );
       }
-    }
-  }
-
-  // Merge same materials
-  const merged = new Map<string, MaterialResult>();
-  for (const r of results) {
-    const existing = merged.get(r.matId);
-    if (existing) {
-      existing.quantity += r.quantity;
-      existing.totalPrice += r.totalPrice;
-      existing.details += '; ' + r.details;
-    } else {
-      merged.set(r.matId, { ...r });
     }
   }
 

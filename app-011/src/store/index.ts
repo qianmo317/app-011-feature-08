@@ -19,6 +19,10 @@ interface AppState {
   addOutlet: (planId: string, outlet: Outlet) => void;
   deleteOutlet: (planId: string, outletId: string) => void;
   updateMaterials: (planId: string, mats: MatSpec[]) => void;
+  /** 给某个材料的某个房间单独填单价；price 传 undefined 表示清除，回到整项统一价 */
+  setRoomPrice: (planId: string, matId: string, roomId: string, price: number | undefined) => void;
+  /** 一键清除某材料的全部房间单价，恢复整项统一价 */
+  clearRoomPrices: (planId: string, matId: string) => void;
 }
 
 function genId() {
@@ -124,5 +128,35 @@ export const useStore = create<AppState>((set, get) => ({
   updateMaterials: (planId, mats) =>
     set((state) => ({
       plans: state.plans.map((p) => (p.id === planId ? { ...p, materials: mats } : p)),
+    })),
+
+  setRoomPrice: (planId, matId, roomId, price) =>
+    set((state) => ({
+      plans: state.plans.map((p) => {
+        if (p.id !== planId) return p;
+        const overrides = { ...(p.priceOverrides ?? {}) };
+        const matOverrides = { ...(overrides[matId] ?? {}) };
+        if (price === undefined) {
+          delete matOverrides[roomId];
+        } else {
+          matOverrides[roomId] = price;
+        }
+        if (Object.keys(matOverrides).length === 0) {
+          delete overrides[matId];
+        } else {
+          overrides[matId] = matOverrides;
+        }
+        return { ...p, priceOverrides: overrides };
+      }),
+    })),
+
+  clearRoomPrices: (planId, matId) =>
+    set((state) => ({
+      plans: state.plans.map((p) => {
+        if (p.id !== planId || !p.priceOverrides?.[matId]) return p;
+        const overrides = { ...p.priceOverrides };
+        delete overrides[matId];
+        return { ...p, priceOverrides: overrides };
+      }),
     })),
 }));

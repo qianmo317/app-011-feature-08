@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, Fragment } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useStore } from '../store';
 import { polygonArea, getWallSegments, formatMm } from '../utils/geometry';
@@ -15,7 +15,14 @@ export default function PrintView() {
   }
 
   const results = calcMaterials(plan.rooms, plan.openings, plan.materials);
-  const totalPrice = results.reduce((s, r) => s + r.totalPrice, 0);
+  const matMap = new Map(plan.materials.map((m) => [m.id, m]));
+  const overrides = plan.priceOverrides ?? {};
+  const priceFor = (matId: string, roomId: string) =>
+    overrides[matId]?.[roomId] ?? matMap.get(matId)?.price ?? 0;
+  const totalPrice = results.reduce(
+    (s, r) => s + r.roomLines.reduce((s2, l) => s2 + l.quantity * priceFor(r.matId, l.roomId), 0),
+    0
+  );
 
   const handlePrint = () => {
     window.print();
@@ -170,6 +177,7 @@ export default function PrintView() {
               <tr>
                 <th>序号</th>
                 <th>材料名称</th>
+                <th>房间/部位</th>
                 <th>单位</th>
                 <th>数量</th>
                 <th>单价</th>
@@ -178,26 +186,54 @@ export default function PrintView() {
             </thead>
             <tbody>
               {results.map((r, i) => {
-                const mat = plan.materials.find((m) => m.id === r.matId);
+                const mat = matMap.get(r.matId);
+                const matTotal = r.roomLines.reduce(
+                  (s, l) => s + l.quantity * priceFor(r.matId, l.roomId),
+                  0
+                );
                 return (
-                  <tr key={r.matId}>
-                    <td>{i + 1}</td>
-                    <td>{r.name}</td>
-                    <td>{r.unit}</td>
-                    <td>{r.quantity.toFixed(2)}</td>
-                    <td>¥{mat?.price.toFixed(2) || 0}</td>
-                    <td>¥{r.totalPrice.toFixed(2)}</td>
-                  </tr>
+                  <Fragment key={r.matId}>
+                    <tr style={{ fontWeight: 500 }}>
+                      <td>{i + 1}</td>
+                      <td>{r.name}</td>
+                      <td>整项</td>
+                      <td>{r.unit}</td>
+                      <td>{r.quantity.toFixed(2)}</td>
+                      <td>¥{mat?.price.toFixed(2) || 0}</td>
+                      <td>¥{matTotal.toFixed(2)}</td>
+                    </tr>
+                    {r.roomLines.map((l) => {
+                      const overridden = overrides[r.matId]?.[l.roomId] !== undefined;
+                      const price = priceFor(r.matId, l.roomId);
+                      return (
+                        <tr key={`${r.matId}-${l.roomId}`} style={{ fontSize: 13, color: '#555' }}>
+                          <td></td>
+                          <td></td>
+                          <td>
+                            {l.roomName} · {l.part}
+                            {overridden ? ' *' : ''}
+                          </td>
+                          <td>{r.unit}</td>
+                          <td>{l.quantity.toFixed(2)}</td>
+                          <td>¥{price.toFixed(2)}</td>
+                          <td>¥{(l.quantity * price).toFixed(2)}</td>
+                        </tr>
+                      );
+                    })}
+                  </Fragment>
                 );
               })}
             </tbody>
             <tfoot>
               <tr style={{ fontWeight: 'bold' }}>
-                <td colSpan={5}>合计</td>
+                <td colSpan={6}>合计</td>
                 <td>¥{totalPrice.toFixed(2)}</td>
               </tr>
             </tfoot>
           </table>
+          <div style={{ marginTop: 8, fontSize: 11, color: '#999' }}>
+            带 * 的行为按房间单独填写的单价，其余为整项统一价。
+          </div>
         </div>
       </div>
 
